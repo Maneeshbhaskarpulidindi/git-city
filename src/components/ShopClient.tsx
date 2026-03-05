@@ -663,8 +663,21 @@ export default function ShopClient({
 
   const [isBrazil, setIsBrazil] = useState(false);
   useEffect(() => {
-    const lang = navigator.language || "";
-    setIsBrazil(lang.startsWith("pt"));
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+      // Brazilian IANA timezones all use Brazilian city names
+      const brTimezones = new Set([
+        "America/Sao_Paulo", "America/Bahia", "America/Belem",
+        "America/Fortaleza", "America/Recife", "America/Maceio",
+        "America/Araguaina", "America/Manaus", "America/Cuiaba",
+        "America/Porto_Velho", "America/Boa_Vista", "America/Campo_Grande",
+        "America/Eirunepe", "America/Rio_Branco", "America/Noronha",
+        "America/Santarem",
+      ]);
+      setIsBrazil(brTimezones.has(tz));
+    } catch {
+      setIsBrazil(false);
+    }
   }, []);
 
   const [pixModal, setPixModal] = useState<PixModalData | null>(null);
@@ -936,10 +949,13 @@ export default function ShopClient({
     }
   }, [raidLoadout.tag]);
 
+  const [buyingProvider, setBuyingProvider] = useState<"stripe" | "nowpayments" | "abacatepay" | null>(null);
+
   const checkout = useCallback(
     async (itemId: string, provider: "stripe" | "nowpayments" | "abacatepay" = "stripe") => {
       if (buyingItem) return;
       setBuyingItem(itemId);
+      setBuyingProvider(provider);
       setError(null);
 
       const shopItem = items.find((i) => i.id === itemId);
@@ -987,6 +1003,7 @@ export default function ShopClient({
         setError("Network error. Try again.");
       } finally {
         setBuyingItem(null);
+        setBuyingProvider(null);
       }
     },
     [buyingItem, items, githubLogin]
@@ -1112,7 +1129,7 @@ export default function ShopClient({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="border-[3px] border-border bg-bg p-6 text-center">
             <div className="mb-3 text-2xl animate-pulse">{ITEM_EMOJIS[buyingItem] ?? "🛒"}</div>
-            <p className="text-xs text-cream">Redirecting to checkout...</p>
+            <p className="text-xs text-cream">{buyingProvider === "abacatepay" ? "Generating PIX..." : "Redirecting to checkout..."}</p>
             <p className="mt-1 text-[9px] text-muted normal-case">Please wait</p>
           </div>
         </div>

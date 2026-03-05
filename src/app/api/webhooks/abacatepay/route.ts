@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import crypto from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { autoEquipIfSolo } from "@/lib/items";
 import { sendPurchaseNotification, sendGiftSentNotification } from "@/lib/notification-senders/purchase";
@@ -15,19 +14,6 @@ function extractPixId(data: any): string | undefined {
   return data?.pixQrCode?.id ?? data?.id;
 }
 
-function verifySignature(rawBody: string, signature: string): boolean {
-  const secret = process.env.ABACATEPAY_WEBHOOK_SECRET;
-  if (!secret) return false;
-
-  const expected = crypto
-    .createHmac("sha256", secret)
-    .update(Buffer.from(rawBody, "utf8"))
-    .digest("base64");
-
-  const a = Buffer.from(expected);
-  const b = Buffer.from(signature);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
 
 export async function POST(request: Request) {
   // Layer 1: Validate webhook secret via query string
@@ -42,13 +28,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Layer 2: Verify HMAC-SHA256 signature
   const rawBody = await request.text();
-  const signature = request.headers.get("x-webhook-signature");
-  if (signature && !verifySignature(rawBody, signature)) {
-    console.error("AbacatePay webhook signature mismatch");
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let body: any;

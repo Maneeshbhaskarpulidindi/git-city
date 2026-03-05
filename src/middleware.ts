@@ -20,6 +20,7 @@ const ROUTE_LIMITS: [string, number, number][] = [
   ["/api/achievements", 30, 60_000],
   ["/api/loadout", 10, 60_000],
   ["/api/feed", 30, 60_000],
+  ["/api/checkout/status", 40, 60_000],
   ["/api/checkout", 6, 60_000],
   ["/api/claim", 5, 60_000],
   ["/api/city", 30, 60_000],
