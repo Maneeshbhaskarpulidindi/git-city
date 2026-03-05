@@ -811,15 +811,22 @@ export default function ShopClient({
     setSaved(false);
     setError(null);
     try {
+      const payload = loadoutRef.current;
       const res = await fetch("/api/loadout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(loadoutRef.current),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         setSaved(true);
         setHasChanges(false);
         setTimeout(() => setSaved(false), 2000);
+        try {
+          localStorage.setItem(
+            "gitcity:loadout_override",
+            JSON.stringify({ developerId, loadout: payload, ts: Date.now() }),
+          );
+        } catch {}
       } else {
         setError("Failed to save. Try again.");
       }

@@ -13,6 +13,7 @@ const ROUTE_LIMITS: [string, number, number][] = [
   ["/api/sky-ads", 30, 60_000],
   ["/api/raid", 15, 60_000],
   ["/api/checkin", 10, 60_000],
+  ["/api/heartbeats", 60, 60_000],
   ["/api/interactions/kudos", 20, 60_000],
   ["/api/interactions/visit", 50, 60_000],
   ["/api/interactions", 60, 60_000],
