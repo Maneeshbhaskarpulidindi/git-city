@@ -1316,13 +1316,54 @@ function HomeContent() {
 
   // Focus on building from ?user= query param (skip if gift redirect, handled separately)
   const didFocusUserParam = useRef(false);
+  const fetchingUserParam = useRef(false);
   useEffect(() => {
     if (!userParam || giftedParam || buildings.length === 0) return;
 
     const found = buildings.find(
       (b) => b.login.toLowerCase() === userParam.toLowerCase()
     );
-    if (!found) return; // Not loaded yet, wait for next chunk
+
+    // Dev not in city yet — fetch to create, then inject into layout
+    if (!found) {
+      if (fetchingUserParam.current) return;
+      fetchingUserParam.current = true;
+      (async () => {
+        try {
+          const res = await fetch(`/api/dev/${encodeURIComponent(userParam)}`);
+          if (!res.ok) return;
+          const devData = await res.json();
+          const newDev = {
+            ...devData,
+            owned_items: [],
+            achievements: [],
+            loadout: null,
+            custom_color: null,
+            billboard_images: [],
+            active_raid_tag: null,
+            kudos_count: devData.kudos_count ?? 0,
+            visit_count: devData.visit_count ?? 0,
+            app_streak: devData.app_streak ?? 0,
+            raid_xp: devData.raid_xp ?? 0,
+            rabbit_completed: false,
+            xp_total: devData.xp_total ?? 0,
+            xp_level: devData.xp_level ?? 1,
+          };
+          rawDevsRef.current = [...rawDevsRef.current, newDev];
+          const layout = generateCityLayout(rawDevsRef.current);
+          setBuildings(layout.buildings);
+          setPlazas(layout.plazas);
+          setDecorations(layout.decorations);
+          setRiver(layout.river);
+          setBridges(layout.bridges);
+          setDistrictZones(layout.districtZones);
+          setCityCache({ ...layout, stats: stats ?? { total_developers: 0, total_contributions: 0 } });
+        } finally {
+          fetchingUserParam.current = false;
+        }
+      })();
+      return;
+    }
 
     if (!didFocusUserParam.current) {
       // First focus: enter explore mode
@@ -1336,7 +1377,7 @@ function HomeContent() {
         prev && prev.login.toLowerCase() === userParam.toLowerCase() ? found : prev
       );
     }
-  }, [userParam, giftedParam, buildings]);
+  }, [userParam, giftedParam, buildings, stats]);
 
   // Handle ?compare=userA,userB deep link
   const compareParam = searchParams.get("compare");
