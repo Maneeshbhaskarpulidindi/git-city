@@ -147,3 +147,17 @@ export function trackSignInPromptClicked() {
 export function trackDisabledButtonClicked(button_name: string) {
   hm()?.track("disabled_button_clicked", { button_name });
 }
+
+// ─── E.Arcade ───────────────────────────────────────────────
+
+export function trackEArcadeClicked() {
+  hm()?.track("earcade_clicked");
+}
+
+export function trackEArcadeSurveyStarted() {
+  hm()?.track("earcade_survey_started");
+}
+
+export function trackEArcadeSurveyCompleted() {
+  hm()?.track("earcade_survey_completed");
+}

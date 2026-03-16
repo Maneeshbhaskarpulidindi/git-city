@@ -24,7 +24,7 @@ export default function FounderSpire({ onClick }: FounderSpireProps) {
   const ring3Ref = useRef<THREE.Mesh>(null);
   const topGlowRef = useRef<THREE.Mesh>(null);
 
-  const { gl, camera } = useThree();
+  const { gl, camera, scene } = useThree();
   const raycaster = useRef(new THREE.Raycaster());
   const ndc = useRef(new THREE.Vector2());
   const onClickRef = useRef(onClick);
@@ -46,13 +46,33 @@ export default function FounderSpire({ onClick }: FounderSpireProps) {
       ndc.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       ndc.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.current.setFromCamera(ndc.current, camera);
-      return raycaster.current.intersectObject(group, true).length > 0;
+
+      const spireHits = raycaster.current.intersectObject(group, true);
+      if (spireHits.length === 0) return false;
+
+      // Check if a building or another landmark is closer
+      const spireDistance = spireHits[0].distance;
+      const sceneHits = raycaster.current.intersectObjects(scene.children, true);
+      for (const hit of sceneHits) {
+        if (hit.distance >= spireDistance) break;
+        // Instanced buildings block
+        if ((hit.object as any).isInstancedMesh) return false;
+        // Other landmarks block (walk up to find landmark group)
+        let obj: THREE.Object3D | null = hit.object;
+        while (obj) {
+          if (obj === group) break; // our own mesh, ignore
+          if (obj.userData?.isLandmark) return false; // another landmark is in front
+          obj = obj.parent;
+        }
+      }
+      return true;
     };
 
     // Click handling
     let tap: { time: number; x: number; y: number } | null = null;
 
     const onDown = (e: PointerEvent) => {
+      if ((window as any).__arcadeClicked) return;
       if (hitsSpire(e)) {
         w.__spireClicked = true;
         tap = { time: performance.now(), x: e.clientX, y: e.clientY };
@@ -121,7 +141,7 @@ export default function FounderSpire({ onClick }: FounderSpireProps) {
   });
 
   return (
-    <group ref={groupRef} position={[0, 0, 0]}>
+    <group ref={groupRef} position={[0, 0, 0]} userData={{ isLandmark: true }}>
       {/* Invisible hitbox for easier clicking */}
       <mesh position={[0, SPIRE_HEIGHT / 2, 0]} visible={false}>
         <cylinderGeometry args={[35, 35, SPIRE_HEIGHT, 8]} />

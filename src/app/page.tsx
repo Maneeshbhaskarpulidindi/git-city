@@ -51,6 +51,7 @@ import {
   trackSignInPromptShown,
   trackSignInPromptClicked,
   trackDisabledButtonClicked,
+  trackEArcadeClicked,
 } from "@/lib/himetrica";
 
 const CityCanvas = dynamic(() => import("@/components/CityCanvas"), {
@@ -63,6 +64,7 @@ const RaidPreviewModal = dynamic(() => import("@/components/RaidPreviewModal"), 
 const RaidOverlay = dynamic(() => import("@/components/RaidOverlay"), { ssr: false });
 const PillModal = dynamic(() => import("@/components/PillModal"), { ssr: false });
 const FounderMessage = dynamic(() => import("@/components/FounderMessage"), { ssr: false });
+const EArcadeCard = dynamic(() => import("@/components/EArcadeCard"), { ssr: false });
 const RabbitCompletion = dynamic(() => import("@/components/RabbitCompletion"), { ssr: false });
 const DistrictChooser = dynamic(() => import("@/components/DistrictChooser"), { ssr: false });
 const LevelUpToast = dynamic(() => import("@/components/LevelUpToast"), { ssr: false });
@@ -488,6 +490,7 @@ function HomeContent() {
   const [discordMembers, setDiscordMembers] = useState<number | null>(null);
   const [pillModalOpen, setPillModalOpen] = useState(false);
   const [founderMessageOpen, setFounderMessageOpen] = useState(false);
+  const [eArcadeOpen, setEArcadeOpen] = useState(false);
   const [districtChooserOpen, setDistrictChooserOpen] = useState(false);
   const [rabbitCinematic, setRabbitCinematic] = useState(false);
   const [rabbitCinematicPhase, setRabbitCinematicPhase] = useState(-1);
@@ -1004,13 +1007,14 @@ function HomeContent() {
   // During fly mode: only close overlays (profile card) — AirplaneFlight handles pause/exit
   // Outside fly mode: compare → share modal → profile card → focus → explore mode
   useEffect(() => {
-    if (flyMode && !selectedBuilding && !pillModalOpen && !founderMessageOpen) return;
-    if (!flyMode && !exploreMode && !focusedBuilding && !shareData && !selectedBuilding && !giftClaimed && !giftModalOpen && !comparePair && !compareBuilding && !founderMessageOpen && !pillModalOpen && !rabbitCinematic && !invitePreview && raidState.phase === "idle") return;
+    if (flyMode && !selectedBuilding && !pillModalOpen && !founderMessageOpen && !eArcadeOpen) return;
+    if (!flyMode && !exploreMode && !focusedBuilding && !shareData && !selectedBuilding && !giftClaimed && !giftModalOpen && !comparePair && !compareBuilding && !founderMessageOpen && !pillModalOpen && !eArcadeOpen && !rabbitCinematic && !invitePreview && raidState.phase === "idle") return;
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "Escape") {
         // Founder modals take highest priority
         if (founderMessageOpen) { setFounderMessageOpen(false); return; }
         if (pillModalOpen) { setPillModalOpen(false); return; }
+        if (eArcadeOpen) { setEArcadeOpen(false); return; }
         // Rabbit cinematic
         if (rabbitCinematic) { endRabbitCinematic(); return; }
         // Raid takes priority
@@ -1054,7 +1058,7 @@ function HomeContent() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [flyMode, exploreMode, focusedBuilding, shareData, selectedBuilding, giftClaimed, giftModalOpen, comparePair, compareBuilding, founderMessageOpen, pillModalOpen, rabbitCinematic, endRabbitCinematic, raidState.phase, raidActions, invitePreview]);
+  }, [flyMode, exploreMode, focusedBuilding, shareData, selectedBuilding, giftClaimed, giftModalOpen, comparePair, compareBuilding, founderMessageOpen, pillModalOpen, eArcadeOpen, rabbitCinematic, endRabbitCinematic, raidState.phase, raidActions, invitePreview]);
 
   // Rabbit cinematic text phase timing (8s total flyover)
   useEffect(() => {
@@ -2149,7 +2153,7 @@ function HomeContent() {
         accentColor={theme.accent}
         onClearFocus={() => setFocusedBuilding(null)}
         flyPauseSignal={flyPauseSignal}
-        flyHasOverlay={!!selectedBuilding || pillModalOpen || founderMessageOpen || rabbitCinematic}
+        flyHasOverlay={!!selectedBuilding || pillModalOpen || founderMessageOpen || eArcadeOpen || rabbitCinematic}
         flyStartPaused={showFlyControls}
         holdRise={loadStage !== "done"}
         celebrationActive={celebrationActive}
@@ -2209,6 +2213,7 @@ function HomeContent() {
         raidDefender={raidState.defenderBuilding}
         onRaidPhaseComplete={raidActions.onPhaseComplete}
         onLandmarkClick={() => { setPillModalOpen(true); setSelectedBuilding(null); }}
+        onEArcadeClick={() => { trackEArcadeClicked(); setEArcadeOpen(true); setSelectedBuilding(null); }}
         rabbitSighting={rabbitSighting}
         onRabbitCaught={onRabbitCaught}
         rabbitCinematic={rabbitCinematic}
@@ -5225,6 +5230,19 @@ function HomeContent() {
           onClose={() => setFounderMessageOpen(false)}
           session={session}
           hasClaimed={!!myBuilding?.claimed}
+          onSignIn={handleSignInWithRef}
+        />
+      )}
+
+      {/* E.Arcade card */}
+      {eArcadeOpen && (
+        <EArcadeCard
+          onClose={() => setEArcadeOpen(false)}
+          onEnter={() => {
+            // TODO: Navigate to E.Arcade lobby
+            setEArcadeOpen(false);
+          }}
+          session={session}
           onSignIn={handleSignInWithRef}
         />
       )}
