@@ -9,7 +9,8 @@ export function startGameLoop(
   canvas: HTMLCanvasElement,
   callbacks: GameLoopCallbacks,
 ): () => void {
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Failed to get 2D canvas context");
   ctx.imageSmoothingEnabled = false;
 
   let lastTime = 0;

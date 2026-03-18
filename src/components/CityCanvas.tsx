@@ -596,7 +596,7 @@ const _idealLook = new THREE.Vector3();
 const _blendedPos = new THREE.Vector3();
 const _yAxis = new THREE.Vector3(0, 1, 0);
 
-function AirplaneFlight({ onExit, onHud, onPause, pauseSignal = 0, hasOverlay = false, startPaused = false, vehicleType = "airplane", posRef, cityRadius = 3500 }: { onExit: () => void; onHud: (s: number, a: number, x: number, z: number, yaw: number) => void; onPause: (paused: boolean) => void; pauseSignal?: number; hasOverlay?: boolean; startPaused?: boolean; vehicleType?: string; posRef?: React.MutableRefObject<THREE.Vector3>; cityRadius?: number }) {
+function AirplaneFlight({ onExit, onHud, onPause, pauseSignal = 0, hasOverlay = false, startPaused = false, vehicleType = "airplane", posRef, cityRadius = 3500, isMobile = false, onJoystickState, boostActive = false, brakeActive = false }: { onExit: () => void; onHud: (s: number, a: number, x: number, z: number, yaw: number) => void; onPause: (paused: boolean) => void; pauseSignal?: number; hasOverlay?: boolean; startPaused?: boolean; vehicleType?: string; posRef?: React.MutableRefObject<THREE.Vector3>; cityRadius?: number; isMobile?: boolean; onJoystickState?: (state: { baseX: number; baseY: number; dx: number; dy: number } | null) => void; boostActive?: boolean; brakeActive?: boolean }) {
   const { camera } = useThree();
   const ref = useRef<THREE.Group>(null);
   const orbitRef = useRef<any>(null);
@@ -666,7 +666,12 @@ function AirplaneFlight({ onExit, onHud, onPause, pauseSignal = 0, hasOverlay = 
     if (startPaused) onPause(true);
   }, [camera]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Mouse tracking for flight steering
+  // Touch joystick refs
+  const joystickTouch = useRef<{ id: number; startX: number; startY: number } | null>(null);
+  const pendingTouch = useRef<{ dx: number; dy: number } | null>(null);
+  const JOYSTICK_MAX_RADIUS = 60;
+
+  // Mouse + touch tracking for flight steering
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!paused.current) {
@@ -679,13 +684,70 @@ function AirplaneFlight({ onExit, onHud, onPause, pauseSignal = 0, hasOverlay = 
         flySpeed.current = Math.max(MIN_FLY_SPEED, Math.min(MAX_FLY_SPEED, flySpeed.current - e.deltaY * 0.05));
       }
     };
+
+    // Touch handlers for mobile joystick
+    const onTouchStart = (e: TouchEvent) => {
+      if (paused.current || joystickTouch.current) return;
+      const t = e.changedTouches[0];
+      joystickTouch.current = { id: t.identifier, startX: t.clientX, startY: t.clientY };
+      onJoystickState?.({ baseX: t.clientX, baseY: t.clientY, dx: 0, dy: 0 });
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!joystickTouch.current || paused.current) return;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.identifier !== joystickTouch.current.id) continue;
+        const rawDx = t.clientX - joystickTouch.current.startX;
+        const rawDy = t.clientY - joystickTouch.current.startY;
+        // Follow behavior: recenter when finger exceeds radius
+        const dist = Math.sqrt(rawDx ** 2 + rawDy ** 2);
+        if (dist > JOYSTICK_MAX_RADIUS) {
+          const angle = Math.atan2(rawDy, rawDx);
+          joystickTouch.current.startX = t.clientX - Math.cos(angle) * JOYSTICK_MAX_RADIUS;
+          joystickTouch.current.startY = t.clientY - Math.sin(angle) * JOYSTICK_MAX_RADIUS;
+        }
+        const dx = t.clientX - joystickTouch.current.startX;
+        const dy = t.clientY - joystickTouch.current.startY;
+        pendingTouch.current = { dx, dy };
+        onJoystickState?.({ baseX: joystickTouch.current.startX, baseY: joystickTouch.current.startY, dx, dy });
+      }
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (joystickTouch.current?.id === e.changedTouches[i].identifier) {
+          joystickTouch.current = null;
+          pendingTouch.current = null;
+          mouse.current.x = 0;
+          mouse.current.y = 0;
+          onJoystickState?.(null);
+        }
+      }
+    };
+
     window.addEventListener("mousemove", onMove);
     window.addEventListener("wheel", onWheel, { passive: true });
+
+    // Touch: start on canvas element, move/end on window to catch finger leaving canvas
+    const canvas = document.querySelector("canvas");
+    if (isMobile && canvas) {
+      canvas.style.touchAction = "none";
+      canvas.addEventListener("touchstart", onTouchStart, { passive: true });
+      window.addEventListener("touchmove", onTouchMove, { passive: true });
+      window.addEventListener("touchend", onTouchEnd, { passive: true });
+      window.addEventListener("touchcancel", onTouchEnd, { passive: true });
+    }
+
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("wheel", onWheel);
+      if (canvas) {
+        canvas.removeEventListener("touchstart", onTouchStart);
+      }
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("touchcancel", onTouchEnd);
     };
-  }, []);
+  }, [isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // External pause (triggered by parent, e.g. building click)
   const prevSignal = useRef(pauseSignal);
@@ -827,6 +889,14 @@ function AirplaneFlight({ onExit, onHud, onPause, pauseSignal = 0, hasOverlay = 
     }
 
     // ── FLIGHT MODE ──
+    // Consume pending touch input (mobile joystick -> mouse)
+    if (pendingTouch.current) {
+      const { dx, dy } = pendingTouch.current;
+      mouse.current.x = Math.max(-1, Math.min(1, dx / JOYSTICK_MAX_RADIUS));
+      mouse.current.y = Math.max(-1, Math.min(1, -dy / JOYSTICK_MAX_RADIUS));
+      pendingTouch.current = null;
+    }
+
     const t = state.clock.elapsedTime;
     const mx = mouse.current.x;
     const my = mouse.current.y;
@@ -841,10 +911,10 @@ function AirplaneFlight({ onExit, onHud, onPause, pauseSignal = 0, hasOverlay = 
     if (k["KeyW"] || k["ArrowUp"]) altInput = 1;
     if (k["KeyS"] || k["ArrowDown"]) altInput = -1;
 
-    // Shift = boost 2x, Alt = slow 0.3x
+    // Shift = boost 2x, Alt = slow 0.3x, mobile boost/brake props
     let speedMult = 1;
-    if (k["ShiftLeft"] || k["ShiftRight"]) speedMult = 2;
-    if (k["AltLeft"] || k["AltRight"]) speedMult = 0.3;
+    if (k["ShiftLeft"] || k["ShiftRight"] || boostActive) speedMult = 2;
+    if (k["AltLeft"] || k["AltRight"] || brakeActive) speedMult = 0.3;
 
     const actualSpeed = flySpeed.current * speedMult;
 
@@ -2015,6 +2085,10 @@ interface Props {
   flyPauseSignal?: number;
   flyHasOverlay?: boolean;
   flyStartPaused?: boolean;
+  isMobile?: boolean;
+  onJoystickState?: (state: { baseX: number; baseY: number; dx: number; dy: number } | null) => void;
+  flyBoostActive?: boolean;
+  flyBrakeActive?: boolean;
   skyAds?: SkyAd[];
   onAdClick?: (ad: SkyAd) => void;
   onAdViewed?: (adId: string) => void;
@@ -2064,7 +2138,7 @@ function CityExposure({ cityEnergy }: { cityEnergy: number }) {
 // Plaza indices for rabbit sightings (progressively further from center)
 const RABBIT_PLAZA_INDICES = [1, 2, 4, 7, 10]; // plazas[1]=slot3, [2]=slot7, [4]=slot18, [7]=slot42, [10]=slot75
 
-export default function CityCanvas({ buildings, plazas, decorations, river, bridges, flyMode, flyVehicle, onExitFly, onCollect, themeIndex, onHud, onPause, focusedBuilding, focusedBuildingB, accentColor, onClearFocus, onBuildingClick, onFocusInfo, flyPauseSignal, flyHasOverlay, flyStartPaused, skyAds, onAdClick, onAdViewed, introMode, onIntroEnd, raidPhase, raidData, raidAttacker, raidDefender, onRaidPhaseComplete, onLandmarkClick, onEArcadeClick, onSponsorClick, sponsorFocusPos, activeSponsorSlug, rabbitSighting, onRabbitCaught, rabbitCinematic, onRabbitCinematicEnd, rabbitCinematicTarget, ghostPreviewLogin, holdRise, celebrationActive, wallpaperMode, wallpaperSpeed, liveByLogin, cityEnergy }: Props) {
+export default function CityCanvas({ buildings, plazas, decorations, river, bridges, flyMode, flyVehicle, onExitFly, onCollect, themeIndex, onHud, onPause, focusedBuilding, focusedBuildingB, accentColor, onClearFocus, onBuildingClick, onFocusInfo, flyPauseSignal, flyHasOverlay, flyStartPaused, isMobile, onJoystickState, flyBoostActive, flyBrakeActive, skyAds, onAdClick, onAdViewed, introMode, onIntroEnd, raidPhase, raidData, raidAttacker, raidDefender, onRaidPhaseComplete, onLandmarkClick, onEArcadeClick, onSponsorClick, sponsorFocusPos, activeSponsorSlug, rabbitSighting, onRabbitCaught, rabbitCinematic, onRabbitCinematicEnd, rabbitCinematicTarget, ghostPreviewLogin, holdRise, celebrationActive, wallpaperMode, wallpaperSpeed, liveByLogin, cityEnergy }: Props) {
   const t = THEMES[themeIndex] ?? THEMES[0];
   const showPerf = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("perf");
   const [dpr, setDpr] = useState(1);
@@ -2133,7 +2207,7 @@ export default function CityCanvas({ buildings, plazas, decorations, river, brid
 
           {!introMode && flyMode && (
             <>
-              <AirplaneFlight onExit={onExitFly} onHud={onHud ?? (() => { })} onPause={onPause ?? (() => { })} pauseSignal={flyPauseSignal} hasOverlay={flyHasOverlay} startPaused={flyStartPaused} vehicleType={flyVehicle} posRef={flyPosRef} cityRadius={cityRadius} />
+              <AirplaneFlight onExit={onExitFly} onHud={onHud ?? (() => { })} onPause={onPause ?? (() => { })} pauseSignal={flyPauseSignal} hasOverlay={flyHasOverlay} startPaused={flyStartPaused} vehicleType={flyVehicle} posRef={flyPosRef} cityRadius={cityRadius} isMobile={isMobile} onJoystickState={onJoystickState} boostActive={flyBoostActive} brakeActive={flyBrakeActive} />
               <SkyCollectibles playerPosRef={flyPosRef} accentColor={accentColor ?? "#6090e0"} onCollect={onCollect ?? (() => { })} cityRadius={cityRadius} />
             </>
           )}

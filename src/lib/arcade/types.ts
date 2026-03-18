@@ -1,3 +1,8 @@
+// ─── Avatar config (persisted in arcade_avatars table) ────────
+export interface AvatarConfig {
+  sprite_id: number;
+}
+
 // ─── Directions ───────────────────────────────────────────────
 export type Direction = "up" | "down" | "left" | "right";
 
@@ -22,7 +27,10 @@ export interface ChatBubble {
 // ─── Protocol: Client → Server ────────────────────────────────
 export type ClientMsg =
   | { type: "move"; dir: Direction }
-  | { type: "chat"; text: string };
+  | { type: "chat"; text: string }
+  | { type: "sit"; x: number; y: number; dir: Direction }
+  | { type: "stand" }
+  | { type: "avatar"; sprite_id: number };
 
 // ─── Protocol: Server → Client ────────────────────────────────
 export type ServerMsg =
@@ -30,4 +38,7 @@ export type ServerMsg =
   | { type: "join"; player: PlayerState }
   | { type: "leave"; id: string }
   | { type: "move"; id: string; x: number; y: number; dir: Direction }
-  | { type: "chat"; id: string; text: string };
+  | { type: "chat"; id: string; text: string }
+  | { type: "sit"; id: string; x: number; y: number; dir: Direction }
+  | { type: "stand"; id: string; x: number; y: number }
+  | { type: "avatar"; id: string; sprite_id: number };

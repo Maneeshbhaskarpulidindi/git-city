@@ -21,6 +21,40 @@ export interface MapObject {
   width?: number;
   height?: number;
   label?: string;
+  dir?: "up" | "down" | "left" | "right"; // facing direction when sitting
+}
+
+/** Find an interactive object at or near the player */
+export function findNearbyObject(
+  playerX: number,
+  playerY: number,
+  type?: string,
+): MapObject | null {
+  if (!currentMap) return null;
+  for (const obj of currentMap.objects) {
+    if (type && obj.type !== type) continue;
+    if (obj.type === "spawn") continue;
+    // Use object width for range (elevator is 4 tiles wide)
+    const objW = obj.width ?? 1;
+    const objH = obj.height ?? 1;
+    // Check if player is within 1 tile of any part of the object
+    const nearX = playerX >= obj.x - 1 && playerX <= obj.x + objW;
+    const nearY = playerY >= obj.y - 1 && playerY <= obj.y + objH;
+    if (nearX && nearY) {
+      return obj;
+    }
+  }
+  return null;
+}
+
+/** Find a seat (or PC workstation) at or near the player */
+export function findNearbySeat(
+  playerX: number,
+  playerY: number,
+): MapObject | null {
+  // Both "seat" and "pc" are sittable
+  return findNearbyObject(playerX, playerY, "seat")
+    ?? findNearbyObject(playerX, playerY, "pc");
 }
 
 export interface GameMap {
@@ -73,4 +107,8 @@ export function getRandomSpawn(): { x: number; y: number } {
 
 export function getCollisionData(): number[] {
   return currentMap?.layers.collision ?? [];
+}
+
+export function resetMap(): void {
+  currentMap = null;
 }

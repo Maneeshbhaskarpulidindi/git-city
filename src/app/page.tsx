@@ -432,11 +432,15 @@ function HomeContent() {
   const announceCooldownRef = useRef(0);
   const [flyPaused, setFlyPaused] = useState(false);
   const [flyPauseSignal, setFlyPauseSignal] = useState(0);
+  const [flyJoystickState, setFlyJoystickState] = useState<{ baseX: number; baseY: number; dx: number; dy: number } | null>(null);
+  const [flyBoostActive, setFlyBoostActive] = useState(false);
+  const [flyBrakeActive, setFlyBrakeActive] = useState(false);
   const [flyScore, setFlyScore] = useState({ score: 0, earned: 0, combo: 0, collected: 0, maxCombo: 1 });
   const [flyPersonalBest, setFlyPersonalBest] = useState(0);
   const flyStartTime = useRef(0);
   const flyPausedAt = useRef(0);
   const flyTotalPauseMs = useRef(0);
+  const exitFlyRef = useRef<(() => void) | null>(null);
   const [flyElapsedSec, setFlyElapsedSec] = useState(0);
   const [stats, setStats] = useState<CityStats>({ total_developers: 0, total_contributions: 0 });
   const [milestoneCelebrations, setMilestoneCelebrations] = useState<{ milestone: number; reached_at: string }[]>([]);
@@ -614,11 +618,12 @@ function HomeContent() {
       raidMode: raidState.phase !== "idle" && raidState.phase !== "preview",
       accent: theme.accent,
       shadow: theme.shadow,
+      hidden: flyMode && isMobile,
     };
     // Store for late-mounting components (e.g. portal)
     (window as unknown as Record<string, unknown>).__gcRadioMode = detail;
     window.dispatchEvent(new CustomEvent("gc:radio-mode", { detail }));
-  }, [flyMode, raidState.phase, theme.accent, theme.shadow]);
+  }, [flyMode, raidState.phase, theme.accent, theme.shadow, isMobile]);
 
   // Detect mobile/touch device
   useEffect(() => {
@@ -2037,7 +2042,7 @@ function HomeContent() {
 
   // Feature 1: Daily Challenge Nudge — show after load if user has history but hasn't played today
   useEffect(() => {
-    if (loadStage !== "done" || isMobile || !session || flyMode || introMode) return;
+    if (loadStage !== "done" || !session || flyMode || introMode) return;
     dailyNudgeTimerRef.current = setTimeout(() => {
       try {
         const raw = localStorage.getItem("gitcity_fly_history");
@@ -2056,11 +2061,11 @@ function HomeContent() {
       } catch { }
     }, 2000);
     return () => clearTimeout(dailyNudgeTimerRef.current);
-  }, [loadStage, isMobile, session, flyMode, introMode]);
+  }, [loadStage, session, flyMode, introMode]);
 
   // Feature 2: First-Fly Tooltip — show if user has never flown
   useEffect(() => {
-    if (loadStage !== "done" || isMobile || flyMode || introMode) return;
+    if (loadStage !== "done" || flyMode || introMode) return;
     try {
       if (localStorage.getItem("gitcity_fly_history") || localStorage.getItem("gitcity_fly_hint_seen")) return;
     } catch { return; }
@@ -2074,7 +2079,7 @@ function HomeContent() {
       flyHintTimerRef.current = autoDismiss;
     }, 5000);
     return () => clearTimeout(flyHintTimerRef.current);
-  }, [loadStage, isMobile, flyMode, introMode]);
+  }, [loadStage, flyMode, introMode]);
 
   // Feature 3: First-Flight Controls Overlay — user-dismissed only (no auto-dismiss)
 
@@ -2089,7 +2094,7 @@ function HomeContent() {
         bridges={bridges}
         flyMode={flyMode}
         flyVehicle={flyVehicle}
-        onExitFly={() => {
+        onExitFly={exitFlyRef.current = () => {
           const wallMs = Date.now() - flyStartTime.current;
           // Exclude pause time from flight duration
           const currentPauseMs = flyPausedAt.current > 0 ? Date.now() - flyPausedAt.current : 0;
@@ -2142,7 +2147,7 @@ function HomeContent() {
             } catch { }
           }
           // Exit fly immediately (don't block on API)
-          setFlyMode(false); setFlyPaused(false); lastDistrictRef.current = null; setDistrictAnnouncement(null); clearTimeout(announceTimerRef.current);
+          setFlyMode(false); setFlyPaused(false); setFlyBoostActive(false); setFlyBrakeActive(false); lastDistrictRef.current = null; setDistrictAnnouncement(null); clearTimeout(announceTimerRef.current);
           // Feature 4: Show post-flight results (rank fills in async)
           if (finalScore > 0) {
             const captured = { score: finalScore, collected: flyScore.collected, maxCombo: flyScore.maxCombo, timeBonus, isNewPB };
@@ -2212,6 +2217,10 @@ function HomeContent() {
         accentColor={theme.accent}
         onClearFocus={() => setFocusedBuilding(null)}
         flyPauseSignal={flyPauseSignal}
+        isMobile={isMobile}
+        onJoystickState={flyMode ? setFlyJoystickState : undefined}
+        flyBoostActive={flyBoostActive}
+        flyBrakeActive={flyBrakeActive}
         flyHasOverlay={!!selectedBuilding || pillModalOpen || founderMessageOpen || eArcadeOpen || !!activeSponsor || rabbitCinematic}
         flyStartPaused={showFlyControls}
         holdRise={loadStage !== "done"}
@@ -2451,68 +2460,125 @@ function HomeContent() {
       {/* ─── Fly Mode HUD ─── */}
       {flyMode && (
         <div className="pointer-events-none fixed inset-0 z-30">
-          {/* Top bar */}
-          <div className="absolute top-4 left-1/2 -translate-x-1/2">
-            <div className="inline-flex items-center gap-3 border-[3px] border-border bg-bg/70 px-5 py-2.5 backdrop-blur-sm">
+
+          {/* ── Mobile: unified top bar ── */}
+          {isMobile ? (
+            <div className="pointer-events-auto absolute left-2 right-2 flex items-center gap-1.5 border-[3px] border-border bg-bg/80 px-2 py-1.5 backdrop-blur-sm" style={{ top: "max(8px, env(safe-area-inset-top, 8px))" }}>
+              {/* Exit */}
+              <button
+                onClick={(e) => { e.stopPropagation(); e.preventDefault(); exitFlyRef.current?.(); }}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
+                className="btn-press shrink-0 text-[10px] tracking-wider uppercase"
+                style={{ color: theme.accent }}
+              >
+                Exit
+              </button>
+              <span className="text-border">|</span>
+              {/* Pause/Resume */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation(); e.preventDefault();
+                  if (flyPaused) {
+                    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Space", bubbles: true }));
+                  } else {
+                    setFlyPauseSignal(s => s + 1);
+                  }
+                }}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
+                className="btn-press shrink-0 text-[10px] tracking-wider uppercase text-cream"
+              >
+                {flyPaused ? "Resume" : "Pause"}
+              </button>
+              {/* Spacer */}
+              <div className="flex-1" />
+              {/* Status dot + FLY + score */}
               <span
-                className={`h-2 w-2 shrink-0 ${flyPaused ? "" : "blink-dot"}`}
+                className={`h-1.5 w-1.5 shrink-0 ${flyPaused ? "" : "blink-dot"}`}
                 style={{ backgroundColor: flyPaused ? "#f85149" : theme.accent }}
               />
-              <span className="text-[10px] text-cream">
-                {flyPaused ? "Paused" : "Fly"}
-              </span>
-              <span className="mx-1 text-border">|</span>
-              <span className="text-[10px]" style={{ color: theme.accent }}>{flyScore.score}</span>
-              <span className="text-[10px] text-muted">PX</span>
+              <span className="text-[9px]" style={{ color: theme.accent }}>{flyScore.score}</span>
+              <span className="text-[9px] text-muted">PX</span>
               {flyScore.combo >= 2 && (
-                <span className="animate-pulse text-[10px] font-bold" style={{ color: "#ffd700" }}>
+                <span className="animate-pulse text-[9px] font-bold" style={{ color: "#ffd700" }}>
                   &times;{flyScore.combo >= 4 ? 3 : flyScore.combo >= 3 ? 2 : 1.5}
                 </span>
               )}
-            </div>
-          </div>
-
-          {/* Score HUD (top right) */}
-          <div className="absolute top-4 right-3 text-right text-[9px] text-muted sm:right-4 sm:text-[10px]">
-            <div>{flyScore.collected}/40 collected</div>
-            <div className="mt-1 flex h-1 w-24 items-center border border-border/40 bg-bg/50 ml-auto">
-              <div className="h-full transition-all duration-150" style={{ width: `${(flyScore.collected / 40) * 100}%`, backgroundColor: theme.accent }} />
-            </div>
-            <div className="mt-1.5 text-[8px]">
-              <span className="text-muted">TIME </span>
-              <span style={{ color: flyElapsedSec < 90 ? theme.accent : "#f85149" }}>
+              <span className="text-border">|</span>
+              <span className="text-[9px] text-muted">{flyScore.collected}<span style={{ color: theme.accent }}>/40</span></span>
+              <span className="text-[9px]" style={{ color: flyElapsedSec < 90 ? theme.accent : "#f85149" }}>
                 {Math.floor(flyElapsedSec / 60)}:{String(flyElapsedSec % 60).padStart(2, "0")}
               </span>
             </div>
-            {flyPersonalBest > 0 && (
-              <div className="mt-0.5 text-[8px] text-muted">BEST: <span style={{ color: theme.accent }}>{flyPersonalBest}</span></div>
-            )}
-          </div>
+          ) : (
+            <>
+              {/* ── Desktop: centered top bar ── */}
+              <div className="absolute top-4 left-1/2 -translate-x-1/2">
+                <div className="inline-flex items-center gap-3 border-[3px] border-border bg-bg/70 px-5 py-2.5 backdrop-blur-sm">
+                  <span
+                    className={`h-2 w-2 shrink-0 ${flyPaused ? "" : "blink-dot"}`}
+                    style={{ backgroundColor: flyPaused ? "#f85149" : theme.accent }}
+                  />
+                  <span className="text-[10px] text-cream">
+                    {flyPaused ? "Paused" : "Fly"}
+                  </span>
+                  <span className="mx-1 text-border">|</span>
+                  <span className="text-[10px]" style={{ color: theme.accent }}>{flyScore.score}</span>
+                  <span className="text-[10px] text-muted">PX</span>
+                  {flyScore.combo >= 2 && (
+                    <span className="animate-pulse text-[10px] font-bold" style={{ color: "#ffd700" }}>
+                      &times;{flyScore.combo >= 4 ? 3 : flyScore.combo >= 3 ? 2 : 1.5}
+                    </span>
+                  )}
+                </div>
+              </div>
 
-          {/* Flight data (above lo-fi radio) */}
-          <div className="absolute bottom-14 left-3 text-[9px] leading-loose text-muted sm:left-4 sm:text-[10px]">
-            <div className="flex items-center gap-2">
-              <span>SPD</span>
-              <span style={{ color: theme.accent }} className="w-6 text-right">
-                {Math.round(hud.speed)}
-              </span>
-              <div className="flex h-1.5 w-20 items-center border border-border/60 bg-bg/50">
-                <div
-                  className="h-full transition-all duration-150"
-                  style={{
-                    width: `${Math.round(((hud.speed - 20) / 140) * 100)}%`,
-                    backgroundColor: theme.accent,
-                  }}
-                />
+              {/* ── Desktop: score HUD (top right) ── */}
+              <div className="absolute top-4 right-4 text-right text-[10px] text-muted">
+                <div>{flyScore.collected}/40 collected</div>
+                <div className="mt-1 flex h-1 w-24 items-center border border-border/40 bg-bg/50 ml-auto">
+                  <div className="h-full transition-all duration-150" style={{ width: `${(flyScore.collected / 40) * 100}%`, backgroundColor: theme.accent }} />
+                </div>
+                <div className="mt-1.5 text-[8px]">
+                  <span className="text-muted">TIME </span>
+                  <span style={{ color: flyElapsedSec < 90 ? theme.accent : "#f85149" }}>
+                    {Math.floor(flyElapsedSec / 60)}:{String(flyElapsedSec % 60).padStart(2, "0")}
+                  </span>
+                </div>
+                {flyPersonalBest > 0 && (
+                  <div className="mt-0.5 text-[8px] text-muted">BEST: <span style={{ color: theme.accent }}>{flyPersonalBest}</span></div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Flight data (above lo-fi radio) — hidden on mobile */}
+          {!isMobile && (
+            <div className="absolute bottom-14 left-3 text-[9px] leading-loose text-muted sm:left-4 sm:text-[10px]">
+              <div className="flex items-center gap-2">
+                <span>SPD</span>
+                <span style={{ color: theme.accent }} className="w-6 text-right">
+                  {Math.round(hud.speed)}
+                </span>
+                <div className="flex h-1.5 w-20 items-center border border-border/60 bg-bg/50">
+                  <div
+                    className="h-full transition-all duration-150"
+                    style={{
+                      width: `${Math.round(((hud.speed - 20) / 140) * 100)}%`,
+                      backgroundColor: theme.accent,
+                    }}
+                  />
+                </div>
+              </div>
+              <div>
+                ALT{" "}
+                <span style={{ color: theme.accent }}>
+                  {Math.round(hud.altitude)}
+                </span>
               </div>
             </div>
-            <div>
-              ALT{" "}
-              <span style={{ color: theme.accent }}>
-                {Math.round(hud.altitude)}
-              </span>
-            </div>
-          </div>
+          )}
 
           {/* District announcement */}
           {districtAnnouncement && (
@@ -2526,46 +2592,111 @@ function HomeContent() {
           )}
 
           {/* Controls hint */}
-          <div className="absolute bottom-35 right-3 text-right text-[8px] leading-loose text-muted sm:right-4 sm:text-[9px]">
-            {flyPaused ? (
-              <>
-                <div>
-                  <span className="text-cream">Drag</span> orbit
-                </div>
-                <div>
-                  <span className="text-cream">Scroll</span> zoom
-                </div>
-                <div>
-                  <span className="text-cream">WASD</span> resume
-                </div>
-                <div>
-                  <span style={{ color: theme.accent }}>ESC</span> exit
-                </div>
-              </>
-            ) : (
-              <>
-                <div>
-                  <span className="text-cream">Mouse</span> steer
-                </div>
-                <div>
-                  <span className="text-cream">Shift</span> boost
-                </div>
-                <div>
-                  <span className="text-cream">Alt</span> slow
-                </div>
-                <div>
-                  <span className="text-cream">Scroll</span> base speed
-                </div>
-                <div>
-                  <span style={{ color: theme.accent }}>P</span> pause
-                </div>
-                <div>
-                  <span style={{ color: theme.accent }}>ESC</span> pause
-                </div>
-              </>
-            )}
-          </div>
+          {!isMobile && (
+            <div className="absolute bottom-35 right-3 text-right text-[8px] leading-loose text-muted sm:right-4 sm:text-[9px]">
+              {flyPaused ? (
+                <>
+                  <div>
+                    <span className="text-cream">Drag</span> orbit
+                  </div>
+                  <div>
+                    <span className="text-cream">Scroll</span> zoom
+                  </div>
+                  <div>
+                    <span className="text-cream">WASD</span> resume
+                  </div>
+                  <div>
+                    <span style={{ color: theme.accent }}>ESC</span> exit
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <span className="text-cream">Mouse</span> steer
+                  </div>
+                  <div>
+                    <span className="text-cream">Shift</span> boost
+                  </div>
+                  <div>
+                    <span className="text-cream">Alt</span> slow
+                  </div>
+                  <div>
+                    <span className="text-cream">Scroll</span> base speed
+                  </div>
+                  <div>
+                    <span style={{ color: theme.accent }}>P</span> pause
+                  </div>
+                  <div>
+                    <span style={{ color: theme.accent }}>ESC</span> pause
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
+      )}
+
+      {/* ─── Mobile Fly HUD (bottom controls only — top bar is unified above) ─── */}
+      {isMobile && flyMode && !showFlyControls && (
+        <>
+          {/* Boost + Slow — bottom left, retro style */}
+          {!flyPaused && (
+            <div className="fixed z-50 flex gap-1.5" style={{ bottom: "max(24px, env(safe-area-inset-bottom, 24px))", left: "16px" }}>
+              <button
+                onTouchStart={(e) => { e.stopPropagation(); setFlyBrakeActive(true); }}
+                onTouchEnd={(e) => { e.stopPropagation(); setFlyBrakeActive(false); }}
+                onTouchCancel={() => setFlyBrakeActive(false)}
+                className="btn-press border-[3px] bg-bg/80 px-3 py-2 text-[10px] tracking-widest uppercase backdrop-blur-sm transition-all"
+                style={{
+                  borderColor: flyBrakeActive ? theme.accent : "var(--color-border)",
+                  color: flyBrakeActive ? theme.accent : "var(--color-muted)",
+                }}
+              >
+                Slow
+              </button>
+              <button
+                onTouchStart={(e) => { e.stopPropagation(); setFlyBoostActive(true); }}
+                onTouchEnd={(e) => { e.stopPropagation(); setFlyBoostActive(false); }}
+                onTouchCancel={() => setFlyBoostActive(false)}
+                className="btn-press border-[3px] bg-bg/80 px-3 py-2 text-[10px] tracking-widest uppercase backdrop-blur-sm transition-all"
+                style={{
+                  borderColor: flyBoostActive ? "#ffb428" : "var(--color-border)",
+                  color: flyBoostActive ? "#ffb428" : "var(--color-cream)",
+                  boxShadow: flyBoostActive ? "0 0 12px rgba(255,180,40,0.25)" : "none",
+                }}
+              >
+                Boost
+              </button>
+            </div>
+          )}
+
+          {/* Joystick visual overlay */}
+          {flyJoystickState && (
+            <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 30 }}>
+              {/* Base ring */}
+              <div style={{
+                position: "absolute",
+                left: flyJoystickState.baseX - 60,
+                top: flyJoystickState.baseY - 60,
+                width: 120, height: 120,
+                borderRadius: "50%",
+                border: "1.5px solid rgba(255,255,255,0.2)",
+                background: "rgba(255,255,255,0.04)",
+              }} />
+              {/* Thumb */}
+              <div style={{
+                position: "absolute",
+                left: flyJoystickState.baseX + flyJoystickState.dx - 18,
+                top: flyJoystickState.baseY + flyJoystickState.dy - 18,
+                width: 36, height: 36,
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.25)",
+                border: "1px solid rgba(255,255,255,0.35)",
+                willChange: "transform",
+              }} />
+            </div>
+          )}
+        </>
       )}
 
       {/* ─── Feature 3: First-Flight Controls Overlay ─── */}
@@ -2577,22 +2708,37 @@ function HomeContent() {
           >
             <p className="mb-4 text-xs tracking-widest text-muted">FLIGHT CONTROLS</p>
             <div className="flex flex-col gap-2.5 text-[11px]">
-              <div className="flex items-center justify-between gap-6">
-                <span className="text-cream">Mouse</span>
-                <span className="text-muted">Steer</span>
-              </div>
-              <div className="flex items-center justify-between gap-6">
-                <span className="text-cream">Scroll</span>
-                <span className="text-muted">Speed</span>
-              </div>
-              <div className="flex items-center justify-between gap-6">
-                <span className="text-cream">Shift / Alt</span>
-                <span className="text-muted">Boost / Slow</span>
-              </div>
-              <div className="flex items-center justify-between gap-6">
-                <span style={{ color: theme.accent }}>ESC</span>
-                <span className="text-muted">Pause &amp; Exit</span>
-              </div>
+              {isMobile ? (
+                <>
+                  <div className="flex items-center justify-between gap-6">
+                    <span className="text-cream">Touch &amp; Drag</span>
+                    <span className="text-muted">Steer</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-6">
+                    <span className="text-cream">Buttons</span>
+                    <span className="text-muted">Pause / Exit</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-6">
+                    <span className="text-cream">Mouse</span>
+                    <span className="text-muted">Steer</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-6">
+                    <span className="text-cream">Scroll</span>
+                    <span className="text-muted">Speed</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-6">
+                    <span className="text-cream">Shift / Alt</span>
+                    <span className="text-muted">Boost / Slow</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-6">
+                    <span style={{ color: theme.accent }}>ESC</span>
+                    <span className="text-muted">Pause &amp; Exit</span>
+                  </div>
+                </>
+              )}
             </div>
             <button
               onClick={() => {
@@ -2615,7 +2761,7 @@ function HomeContent() {
         buildings={buildings}
         playerX={playerPos.x}
         playerZ={playerPos.z}
-        visible={flyMode}
+        visible={flyMode && !isMobile}
         currentDistrict={lastDistrictRef.current}
       />
 
@@ -3405,7 +3551,7 @@ function HomeContent() {
                 >
                   Explore City
                 </button>
-                {!isMobile && (
+                {(
                   <div className="relative">
                     <button
                       onClick={() => {

@@ -57,6 +57,13 @@ export function isSpriteLoaded(): boolean {
   return loaded;
 }
 
+export function resetSprites(): void {
+  characters.length = 0;
+  loaded = false;
+  walkFrame = 0;
+  walkTimer = 0;
+}
+
 /** Call from update(dt) to animate walk cycle */
 export function updateSpriteAnimation(dt: number): void {
   walkTimer += dt;
